@@ -1069,8 +1069,8 @@ SOUNDIO_EXPORT int soundio_outstream_get_latency(struct SoundIoOutStream *outstr
 SOUNDIO_EXPORT int soundio_outstream_set_volume(struct SoundIoOutStream *outstream,
         double volume);
 
-SOUNDIO_EXPORT int soundio_outstream_set_active_update(struct SoundIoOutStream *outstream,
-        bool active_update, double padding);
+SOUNDIO_EXPORT int soundio_outstream_set_busy_update(struct SoundIoOutStream *outstream,
+        bool busy_update);
 
 
 // Input Streams

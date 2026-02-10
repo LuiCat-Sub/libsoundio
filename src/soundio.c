@@ -568,15 +568,15 @@ int soundio_outstream_set_volume(struct SoundIoOutStream *outstream, double volu
     return si->outstream_set_volume(si, os, volume);
 }
 
-int soundio_outstream_set_active_update(struct SoundIoOutStream *outstream, bool active_update, double padding) {
+int soundio_outstream_set_busy_update(struct SoundIoOutStream *outstream, bool busy_update) {
     struct SoundIo *soundio = outstream->device->soundio;
     struct SoundIoPrivate *si = (struct SoundIoPrivate *)soundio;
     struct SoundIoOutStreamPrivate *os = (struct SoundIoOutStreamPrivate *)outstream;
 
-    if (!si->outstream_set_active_update)
+    if (!si->outstream_set_busy_update)
         return SoundIoErrorIncompatibleBackend;
 
-    return si->outstream_set_active_update(si, os, active_update, padding);
+    return si->outstream_set_busy_update(si, os, busy_update);
 }
 
 static void default_instream_error_callback(struct SoundIoInStream *is, int err) {

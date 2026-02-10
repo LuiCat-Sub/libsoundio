@@ -81,7 +81,7 @@ struct SoundIoOutStreamWasapi {
     int padding_frames_delta; // negative when more than enough is written
     int padding_frames_writable;
     float volume;
-    struct SoundIoAtomicBool active_update;
+    struct SoundIoAtomicBool busy_update;
     struct SoundIoChannelArea areas[SOUNDIO_MAX_CHANNELS];
 };
 

@@ -1520,20 +1520,16 @@ static void outstream_shared_run(struct SoundIoOutStreamPrivate *os) {
         }
         osw->writable_frame_count = osw->buffer_frame_count - frames_used;
 
-        if (SOUNDIO_ATOMIC_LOAD(osw->active_update)) {
-            if (!SOUNDIO_ATOMIC_FLAG_TEST_AND_SET(osw->thread_exit_flag)) {
-                return;
-            }
-        } else {
+        if (!SOUNDIO_ATOMIC_LOAD(osw->busy_update) || osw->writable_frame_count <= 0) {
             double time_until_underrun = frames_used / (double)outstream->sample_rate;
             double wait_time = time_until_underrun / 2.0;
             soundio_os_mutex_lock(osw->mutex);
             soundio_os_cond_timed_wait(osw->cond, osw->mutex, wait_time);
-            if (!SOUNDIO_ATOMIC_FLAG_TEST_AND_SET(osw->thread_exit_flag)) {
-                soundio_os_mutex_unlock(osw->mutex);
-                return;
-            }
             soundio_os_mutex_unlock(osw->mutex);
+        }
+
+        if (!SOUNDIO_ATOMIC_FLAG_TEST_AND_SET(osw->thread_exit_flag)) {
+            return;
         }
 
         bool reset_buffer = false;
@@ -1843,13 +1839,10 @@ static int outstream_set_volume_wasapi(struct SoundIoPrivate *si, struct SoundIo
     return 0;
 }
 
-static int outstream_set_active_update_wasapi(struct SoundIoPrivate *si, struct SoundIoOutStreamPrivate *os, bool active_update, double padding)
+static int outstream_set_busy_update_wasapi(struct SoundIoPrivate *si, struct SoundIoOutStreamPrivate *os, bool busy_update)
 {
-    struct SoundIoOutStream *outstream = &os->pub;
     struct SoundIoOutStreamWasapi *osw = &os->backend_data.wasapi;
-    osw->padding_frames = soundio_uint_clamp(osw->padding_frames_min, (UINT)(padding * outstream->sample_rate + 0.5), osw->buffer_frame_count);
-    outstream->software_latency_min = osw->padding_frames / (double)outstream->sample_rate;
-    SOUNDIO_ATOMIC_STORE(osw->active_update, active_update);
+    SOUNDIO_ATOMIC_STORE(osw->busy_update, busy_update);
     return 0;
 }
 
@@ -2443,7 +2436,7 @@ int soundio_wasapi_init(struct SoundIoPrivate *si) {
     si->outstream_pause = outstream_pause_wasapi;
     si->outstream_get_latency = outstream_get_latency_wasapi;
     si->outstream_set_volume = outstream_set_volume_wasapi;
-    si->outstream_set_active_update = outstream_set_active_update_wasapi;
+    si->outstream_set_busy_update = outstream_set_busy_update_wasapi;
 
     si->instream_open = instream_open_wasapi;
     si->instream_destroy = instream_destroy_wasapi;
