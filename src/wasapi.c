@@ -1322,7 +1322,7 @@ static int outstream_do_open(struct SoundIoPrivate *si, struct SoundIoOutStreamP
     wave_format.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
     wave_format.Format.cbSize = sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
     if (osw->is_raw) {
-        wave_format.Format.nSamplesPerSec = outstream->sample_rate;
+        wave_format.Format.nSamplesPerSec = (DWORD)outstream->sample_rate;
         flags = AUDCLNT_STREAMFLAGS_EVENTCALLBACK;
         share_mode = AUDCLNT_SHAREMODE_EXCLUSIVE;
         periodicity = to_reference_time(outstream->software_latency);
@@ -1460,6 +1460,15 @@ static int outstream_do_open(struct SoundIoPrivate *si, struct SoundIoOutStreamP
         osw->padding_frames = periodicity_frames > 0 ? periodicity_frames :
                                   (UINT32)(outstream->software_latency_min * outstream->sample_rate + 0.5);
     }
+
+    REFERENCE_TIME stream_latency;
+    if (FAILED(hr = IAudioClient_GetStreamLatency(osw->audio_client, &stream_latency))) {
+        return SoundIoErrorOpeningDevice;
+    }
+    osw->extra_latency = from_reference_time(stream_latency) / (double)outstream->sample_rate;
+
+    outstream->software_latency = osw->buffer_frame_count / (double)outstream->sample_rate + osw->extra_latency;
+    outstream->software_latency_min = osw->padding_frames / (double)outstream->sample_rate + osw->extra_latency;
 
     if (osw->is_raw) {
         if (FAILED(hr = IAudioClient_SetEventHandle(osw->audio_client, osw->h_event))) {
@@ -1835,11 +1844,14 @@ static int outstream_get_latency_wasapi(struct SoundIoPrivate *si, struct SoundI
 
     HRESULT hr;
     UINT32 frames_used;
+
     if (FAILED(hr = IAudioClient_GetCurrentPadding(osw->audio_client, &frames_used))) {
         return SoundIoErrorStreaming;
     }
 
-    *out_latency = frames_used / (double)outstream->sample_rate;
+    // todo: try IAudioClock_GetPosition for device-based latency calculation
+
+    *out_latency = frames_used / (double)outstream->sample_rate + osw->extra_latency;
     return 0;
 }
 
