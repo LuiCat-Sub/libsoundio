@@ -929,7 +929,7 @@ static int refresh_devices(struct SoundIoPrivate *si) {
             continue;
         }
         dev_w_shared->period_duration = from_reference_time(default_device_period);
-        rd.device_shared->software_latency_min = dev_w_shared->period_duration * 2;
+        rd.device_shared->software_latency_min = dev_w_shared->period_duration;
 
         dev_w_raw->period_duration = from_reference_time(min_device_period);
         rd.device_raw->software_latency_current = dev_w_raw->period_duration * 2;
@@ -1061,8 +1061,9 @@ static int refresh_devices(struct SoundIoPrivate *si) {
                     if (SUCCEEDED(hr = IAudioClient3_GetSharedModeEnginePeriod(rd.audio_client3,
                         &rd.wave_format->Format, &default_period, &fundamental_period, &min_period, &max_period)))
                     {
-                        rd.device_shared->software_latency_min =
-                            2 * (double)min_period / rd.device_shared->sample_rate_current;
+                        double frame_duration = 1.0 / rd.device_shared->sample_rate_current;
+                        rd.device_shared->software_latency_current = default_period * frame_duration;
+                        rd.device_shared->software_latency_min = min_period * frame_duration;
                     }
                 }
             }
@@ -1309,7 +1310,8 @@ static int outstream_do_open(struct SoundIoPrivate *si, struct SoundIoOutStreamP
         return SoundIoErrorOpeningDevice;
     }
 
-    outstream->software_latency = soundio_double_clamp(device->software_latency_min, outstream->software_latency, device->software_latency_max);
+    outstream->software_latency = soundio_double_clamp(
+        device->software_latency_min, outstream->software_latency, device->software_latency_max);
 
     AUDCLNT_SHAREMODE share_mode;
     DWORD flags;
@@ -1356,8 +1358,9 @@ static int outstream_do_open(struct SoundIoPrivate *si, struct SoundIoOutStreamP
                 SUCCEEDED(hr = IAudioClient3_GetSharedModeEnginePeriod(audio_client3, &mix_format->Format,
                     &default_period, &fundamental_period, &min_period, &max_period)))
             {
-                periodicity_frames = (osw->padding_frames_min / fundamental_period) * fundamental_period;
-                periodicity_frames = soundio_uint_clamp(min_period, periodicity_frames, max_period);
+                periodicity_frames = (UINT32)(outstream->software_latency * outstream->sample_rate + 0.5);
+                periodicity_frames = soundio_uint_clamp(soundio_uint_max(1, min_period / fundamental_period),
+                    periodicity_frames / fundamental_period, max_period / fundamental_period) * fundamental_period;
             } else {
                 IUnknown_Release(audio_client3);
                 audio_client3 = NULL;
@@ -1436,11 +1439,27 @@ static int outstream_do_open(struct SoundIoPrivate *si, struct SoundIoOutStreamP
     if (FAILED(hr = IAudioClient_GetBufferSize(osw->audio_client, &osw->buffer_frame_count))) {
         return SoundIoErrorOpeningDevice;
     }
-    osw->padding_frames_min = periodicity_frames > 0 ? periodicity_frames : osw->buffer_frame_count / 2;
-    osw->padding_frames = soundio_uint_clamp(osw->padding_frames_min, osw->padding_frames, osw->buffer_frame_count);
 
-    outstream->software_latency = osw->buffer_frame_count / (double)outstream->sample_rate;
-    outstream->software_latency_min = osw->padding_frames_min / (double)outstream->sample_rate;
+    if (audio_client3 == NULL) {
+        if (osw->is_raw) {
+            osw->padding_frames = osw->buffer_frame_count;
+        } else {
+            REFERENCE_TIME default_device_period;
+            if (FAILED(hr = IAudioClient_GetDevicePeriod(osw->audio_client, &default_device_period, NULL))) {
+                default_device_period = 0;
+            }
+            if (default_device_period > 0) {
+                osw->padding_frames = (UINT32)(from_reference_time(default_device_period) * outstream->sample_rate + 0.5);
+            } else if (outstream->software_latency > 0) {
+                osw->padding_frames = (UINT32)(outstream->software_latency * outstream->sample_rate + 0.5);
+            } else {
+                osw->padding_frames = osw->buffer_frame_count;
+            }
+        }
+    } else {
+        osw->padding_frames = periodicity_frames > 0 ? periodicity_frames :
+                                  (UINT32)(outstream->software_latency_min * outstream->sample_rate + 0.5);
+    }
 
     if (osw->is_raw) {
         if (FAILED(hr = IAudioClient_SetEventHandle(osw->audio_client, osw->h_event))) {

@@ -76,7 +76,6 @@ struct SoundIoOutStreamWasapi {
     bool open_complete;
     int open_err;
     bool started;
-    UINT32 padding_frames_min;
     UINT32 padding_frames;
     int padding_frames_delta; // negative when more than enough is written
     int padding_frames_writable;
